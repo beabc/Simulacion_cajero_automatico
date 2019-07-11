@@ -1,0 +1,96 @@
+#CREAMOS BBDD DONDE GUARDAR LOS DATOS BANCARIOS:
+import pymongo
+myclient = pymongo.MongoClient("mongodb://localhost:XXXX/") # Conexion
+mydb = myclient["Banco"] # Base de datos
+mycol1 = mydb["datos"] # Coleccion datos cliente
+print('Colección datos creada')
+mycol2 = mydb["hist_ope"] # Coleccion historico de operaciones
+print('Colección histórico de operaciones creada')
+
+from datetime import datetime
+print('dt instalada')
+
+
+#RELLENAMOS DATOS BANCARIOS INICIALES:
+db.datos.insertMany([
+        {"cliente_id": 1,
+         "nombre": "beatriz",
+         "apellidos": "bermejo carretero",
+         "domicilio": "madrid",
+         "saldo":3000},
+         {"cliente_id": 2,
+         "nombre": "david",
+         "apellidos": "tato rey",
+         "domicilio": "madrid",
+         "saldo":2000}
+        ])
+
+#ARRANCAMOS PROGRAMA:
+cliente= input('Bienvenido al cajero. Por favor, indique su nombre: ')
+operacion = input('Ahora indique el tipo de operación que desea realizar: ingresar o retirar ')
+if operacion == "ingresar":
+    cant = int(input('Por último, indique la cantidad: '))
+else:
+    cant = -int(input('Por último, indique la cantidad: '))
+
+now = datetime.now()
+fecha_op = int(datetime.timestamp(now))
+
+print(cliente,operacion,cant,fecha_op)
+
+#Preparamos el dict para volcarlo a mongo a la colección hist_ope pero antes para asociar ambas colecciones por su cliente_id es necesario saber el id según el nombre introducido por el usuario en el input:
+id = mycol1.find({'nombre' :cliente})
+for datos in id:
+    us_id = int(datos["cliente_id"])
+    print('Su id de usuario es:', us_id)
+    saldo_actual = datos["saldo"]
+    print('Su saldo actual disponibles es: ', saldo_actual)
+
+#Se comprueba que dispone de cash:
+if operacion == "retirar" and (saldo_actual + cant < 0):
+    print('Sólo puede retirar: ', saldo_actual)
+    cant = - saldo_actual
+    #Pasamos a retirarle la cantidad máxima disponible y dejar su saldo a 0 indicándole el histórico de sus retiradas
+    to_mongo ={"cliente_id": us_id,
+             "fecha": fecha_op,
+             "tipo operacion": operacion,
+             "cantidad": cant}
+    
+    mycol2.insert_one(to_mongo)#Subimos datos a mongo
+    mycol1.update_one(
+                    {"cliente_id": us_id}, 
+                    {"$inc": {"saldo": cant}}
+                    )#Actualizamos su saldo
+    
+    #Imprimimos su histórico
+    consulta = [{"$match":{"cliente_id": us_id ,"tipo operación": operacion}},{"$project": {"_id":0, "cantidad":1, "fecha":1}}]
+
+    hist_retiradas = mycol2.aggregate(consulta)
+    for dato in hist_retiradas:
+        print(dato)
+    #hist = mycol2.find({"cliente_id": us_id})
+
+else:
+    print('Su operación se está realizando')
+    to_mongo ={"cliente_id": us_id,
+             "fecha": fecha_op,
+             "tipo operacion": operacion,
+             "cantidad": cant}
+    
+    #Subimos los datos a mongo:
+    mycol2.insert_one(to_mongo)
+    print('Subido a mongoDB')
+    
+    #Hay que actualizar el saldo en la otra colección:
+    mycol1.update_one(
+                    {"cliente_id": us_id}, 
+                    {"$inc": {"saldo": cant}}
+                    )
+    print('Actualizada Base de Datos')
+    
+    #Mostramos saldo actualizado tras la operación:
+    actualizacion = mycol1.find({"cliente_id": us_id})
+    for dato in actualizacion:
+        print('Su saldo actual es de:', dato["saldo"])
+    
+    print('Gracias por usar nuestros servicios')
